@@ -1,15 +1,17 @@
 #!/bin/bash
 
-# Ensure we have /workspace in all scenarios
+# Ensure workspace directory exists
 mkdir -p /workspace
 
+# Move or cleanup logic
 if [[ ! -d /workspace/ComfyUI ]]; then
-	# If we don't already have /workspace/ComfyUI, move it there
-	mv /ComfyUI /workspace
+    echo "Initializing new ComfyUI workspace"
+    mv -v /ComfyUI /workspace 2>/dev/null || echo "Move skipped: source/dest conflict"
 else
-	# otherwise delete the default ComfyUI folder which is always re-created on pod start from the Docker
-	rm -rf /ComfyUI
+    echo "Cleaning default ComfyUI location"
+    rm -rfv /ComfyUI 2>/dev/null || :
 fi
 
-# Then link /ComfyUI folder to /workspace so it's available in that familiar location as well
-ln -s /workspace/ComfyUI /ComfyUI
+# Create system symlink
+echo "Creating directory symlink"
+ln -svf /workspace/ComfyUI /ComfyUI
