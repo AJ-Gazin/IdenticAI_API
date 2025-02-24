@@ -39,8 +39,8 @@ RUN pip3 install huggingface_hub[hf-transfer]
 COPY requirements.txt /
 RUN pip3 install -r /requirements.txt
 RUN mkdir -p /output && \
-    chown -R 1000:1000 /output
-
+    chown -R 1000:1000 /output && \
+    chmod -R 777 /output
 # Clone ComfyUI and core nodes
 RUN git clone https://github.com/comfyanonymous/ComfyUI.git && \
     cd ComfyUI && \
@@ -81,7 +81,7 @@ RUN chmod +x start.sh scripts/*.sh
 
 RUN mkdir -p /ComfyUI/output && \
     chown -R 1000:1000 /ComfyUI && \
-    chmod -R 755 /ComfyUI
+    chmod -R 777 /ComfyUI
 
 # Expose ports
 #FastAPI

@@ -4,13 +4,15 @@ services:
   identic_flux_api:
     build: .
     ports:
-      - "8000:8000"     # API
-      - "8188:8188"     # ComfyUI (optional)
+      - "8000:8000"
+      - "8188:8188"  # Optional ComfyUI port
     volumes:
-      - comfyui_data:/ComfyUI
-      - ./output:/ComfyUI/output
-    deploy:
-      resources:
+      - ./comfyui_data:/ComfyUI                # Persistent ComfyUI base
+      - ./output:/ComfyUI/output               # Generated outputs
+      # Optional model cache (recommended):
+      - ~/.cache/huggingface/hub:/root/.cache/huggingface/hub
+    deploy: 
+      resources: 
         reservations:
           devices:
             - driver: nvidia
@@ -21,6 +23,3 @@ services:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - HF_TOKEN=${HF_TOKEN}
-
-volumes:
-  comfyui_data:

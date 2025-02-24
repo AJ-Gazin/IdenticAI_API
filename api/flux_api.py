@@ -289,60 +289,53 @@ class FluxAPI:
             )
 
     def _monitor_generation(self, ws: websocket.WebSocket, prompt_id: str) -> str:
-        """Monitor workflow execution progress via WebSocket with timeouts"""
-        self.logger.info("Monitoring generation via WebSocket")
+        """Monitor workflow execution progress by watching output directory"""
+        self.logger.info("Monitoring generation for new output files")
         start_time = time.time()
-        last_activity = time.time()
-        image_filename = None
+        
+        # Get the initial list of files in the output directory
+        initial_files = set(os.listdir(self.output_dir))
+        self.logger.debug(f"Initial files in output dir: {len(initial_files)}")
         
         try:
             while time.time() - start_time < WEBSOCKET_TIMEOUT:
-                try:
-                    message = ws.recv()
-                    if not message:
-                        continue
+                # Check output directory for new files
+                current_files = set(os.listdir(self.output_dir))
+                new_files = current_files - initial_files
+                
+                if new_files:
+                    # Sort new files by modification time to get most recent
+                    newest_file = max(new_files, 
+                                     key=lambda f: os.path.getmtime(os.path.join(self.output_dir, f)))
+                    self.logger.info(f"New file detected: {newest_file}")
                     
-                    message = json.loads(message)
-                    self.logger.debug(f"WebSocket message: {message['type']}")
-
-                    if message["type"] == "executing":
-                        data = message["data"]
-                        if not data.get("node"):
-                            if data["prompt_id"] == prompt_id:
-                                self.logger.info("Final execution completed")
-                                return self._get_image_from_history(prompt_id)
-                                
-                    elif message["type"] == "executed":
-                        outputs = message.get("data", {}).get("outputs", {})
-                        image_filename = self._extract_filename(outputs)
-                        if image_filename:
-                            self.logger.info(f"Image generated: {image_filename}")
-                            return image_filename
-                            
-                    elif message["type"] == "execution_error":
-                        error = message.get('data', {}).get('exception_message', 'Unknown error')
-                        raise FluxAPIError(f"Generation error: {error}", 
-                                         FluxErrorCode.GENERATION_FAILED)
+                    # Ensure file is completely written by waiting a short time
+                    time.sleep(0.5)
                     
-                    last_activity = time.time()
-
-                except websocket.WebSocketTimeoutException:
-                    if time.time() - last_activity > 30:
-                        self.logger.warning("WebSocket timeout, checking status...")
-                        if self._check_prompt_complete(prompt_id):
-                            return self._get_image_from_history(prompt_id)
-                        continue
-                    else:
-                        continue
-
+                    return newest_file
+                
+                # Also check history as backup
+                if self._check_prompt_complete(prompt_id):
+                    return self._get_image_from_history(prompt_id)
+                
+                # Wait a bit before checking again
+                time.sleep(1)
+            
+            # If we reach here, we've timed out
             raise FluxAPIError("Generation timeout exceeded", FluxErrorCode.TIMEOUT)
-
-        except websocket.WebSocketConnectionClosedException:
-            self.logger.error("WebSocket connection closed unexpectedly")
-            if self._check_prompt_complete(prompt_id):
-                return self._get_image_from_history(prompt_id)
-            raise FluxAPIError("Connection lost during generation", 
-                             FluxErrorCode.CONNECTION_ERROR)
+        
+        except Exception as e:
+            self.logger.error(f"Error monitoring generation: {str(e)}")
+            
+            # Even if monitoring failed, check if the image was actually generated
+            try:
+                if self._check_prompt_complete(prompt_id):
+                    return self._get_image_from_history(prompt_id)
+            except Exception:
+                pass
+                
+            # Re-raise the original exception
+            raise
 
     def _extract_filename(self, outputs: Dict) -> Optional[str]:
         """Extract filename from execution outputs"""
@@ -425,7 +418,7 @@ class FluxAPI:
             prompt_id = self._queue_prompt(self.workflow, client_id)
             self.logger.debug(f"Prompt ID: {prompt_id}")
 
-            # Monitor execution and get filename
+            # Monitor output directory for new files
             filename = self._monitor_generation(ws, prompt_id)
             
             if not filename:
@@ -433,6 +426,10 @@ class FluxAPI:
                     "No output filename received",
                     FluxErrorCode.GENERATION_FAILED
                 )
+                
+            # Ensure we return the full path to the file
+            if not filename.startswith(self.output_dir):
+                filename = os.path.join(self.output_dir, filename)
                 
             return filename
 
