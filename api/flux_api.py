@@ -79,7 +79,7 @@ class FluxAPI:
     def __init__(self, 
                  host: str = "127.0.0.1", 
                  port: str = "8188",
-                 log_level: int = logging.DEBUG,
+                 log_level: int = logging.INFO,
                  rate_limit: int = 10,
                  rate_window: int = 60):
         
