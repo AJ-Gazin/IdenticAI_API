@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Flux API Core - ComfyUI Integration Layer
 Provides programmatic access to ComfyUI workflows with enhanced controls
@@ -22,6 +21,7 @@ DEFAULT_OUTPUT_DIR = "/ComfyUI/output"
 WORKFLOW_BASE_PATH = "/workflows"
 MAX_RETRIES = 3
 RETRY_DELAY = 5  # seconds
+WEBSOCKET_TIMEOUT = 300  # 5 minutes
 
 # --- Error Handling ---
 class FluxErrorCode(Enum):
@@ -33,6 +33,7 @@ class FluxErrorCode(Enum):
     SAVE_ERROR = "SAVE_ERROR"
     RATE_LIMIT = "RATE_LIMIT"
     INVALID_INPUT = "INVALID_INPUT"
+    TIMEOUT = "TIMEOUT"
 
 class FluxAPIError(Exception):
     """Custom API exception with structured error information"""
@@ -78,7 +79,7 @@ class FluxAPI:
     def __init__(self, 
                  host: str = "127.0.0.1", 
                  port: str = "8188",
-                 log_level: int = logging.INFO,
+                 log_level: int = logging.DEBUG,
                  rate_limit: int = 10,
                  rate_window: int = 60):
         
@@ -117,11 +118,6 @@ class FluxAPI:
         ch = logging.StreamHandler()
         ch.setFormatter(formatter)
         self.logger.addHandler(ch)
-
-        # File handler
-        fh = logging.FileHandler('flux-api.log')
-        fh.setFormatter(formatter)
-        self.logger.addHandler(fh)
 
     def check_comfy_status(self) -> bool:
         """Verify ComfyUI service availability"""
@@ -251,6 +247,7 @@ class FluxAPI:
         for attempt in range(MAX_RETRIES):
             try:
                 ws = websocket.WebSocket()
+                ws.settimeout(10)  # Connection timeout
                 ws.connect(self.ws_url)
                 self.logger.debug("WebSocket connection established")
                 return ws
@@ -292,70 +289,97 @@ class FluxAPI:
             )
 
     def _monitor_generation(self, ws: websocket.WebSocket, prompt_id: str) -> str:
-        """Monitor workflow execution progress via WebSocket and return saved image filename"""
-        self.logger.info("Connected to WebSocket, waiting for processing to complete...")
-        
-        finished_nodes = []
-        image_saved = False
+        """Monitor workflow execution progress via WebSocket with timeouts"""
+        self.logger.info("Monitoring generation via WebSocket")
+        start_time = time.time()
+        last_activity = time.time()
         image_filename = None
         
         try:
-            while True:
-                out = ws.recv()
-                if isinstance(out, str):
-                    try:
-                        message = json.loads(out)
-                        
-                        if message["type"] == "executing":
-                            data = message["data"]
-                            node_id = data["node"]
-                            
-                            if node_id not in finished_nodes:
-                                finished_nodes.append(node_id)
-                                node_name = self.workflow.get(str(node_id), {}).get('_meta', {}).get('title', 'Unknown')
-                                self.logger.info(f"Processing node {node_id}: {node_name}")
-                            
-                            if node_id is None and data["prompt_id"] == prompt_id:
-                                return self._handle_completion(image_saved, image_filename, prompt_id)
-                                
-                        elif message["type"] == "executed":
-                            outputs = message.get("data", {}).get("output", {})
-                            image_filename = self._process_executed_message(outputs)
-                            if image_filename:
-                                image_saved = True
-                                
-                        elif message["type"] == "execution_error":
-                            error = message.get('data', {}).get('exception_message', 'Unknown error')
-                            raise FluxAPIError(f"Workflow execution error: {error}", 
-                                             FluxErrorCode.GENERATION_FAILED)
-                            
-                    except json.JSONDecodeError:
+            while time.time() - start_time < WEBSOCKET_TIMEOUT:
+                try:
+                    message = ws.recv()
+                    if not message:
                         continue
-                        
-        except websocket.WebSocketConnectionClosedException as e:
-            self.logger.error(f"WebSocket connection closed: {e}")
-            raise FluxAPIError("WebSocket connection closed unexpectedly", 
+                    
+                    message = json.loads(message)
+                    self.logger.debug(f"WebSocket message: {message['type']}")
+
+                    if message["type"] == "executing":
+                        data = message["data"]
+                        if not data.get("node"):
+                            if data["prompt_id"] == prompt_id:
+                                self.logger.info("Final execution completed")
+                                return self._get_image_from_history(prompt_id)
+                                
+                    elif message["type"] == "executed":
+                        outputs = message.get("data", {}).get("outputs", {})
+                        image_filename = self._extract_filename(outputs)
+                        if image_filename:
+                            self.logger.info(f"Image generated: {image_filename}")
+                            return image_filename
+                            
+                    elif message["type"] == "execution_error":
+                        error = message.get('data', {}).get('exception_message', 'Unknown error')
+                        raise FluxAPIError(f"Generation error: {error}", 
+                                         FluxErrorCode.GENERATION_FAILED)
+                    
+                    last_activity = time.time()
+
+                except websocket.WebSocketTimeoutException:
+                    if time.time() - last_activity > 30:
+                        self.logger.warning("WebSocket timeout, checking status...")
+                        if self._check_prompt_complete(prompt_id):
+                            return self._get_image_from_history(prompt_id)
+                        continue
+                    else:
+                        continue
+
+            raise FluxAPIError("Generation timeout exceeded", FluxErrorCode.TIMEOUT)
+
+        except websocket.WebSocketConnectionClosedException:
+            self.logger.error("WebSocket connection closed unexpectedly")
+            if self._check_prompt_complete(prompt_id):
+                return self._get_image_from_history(prompt_id)
+            raise FluxAPIError("Connection lost during generation", 
                              FluxErrorCode.CONNECTION_ERROR)
-            
-        finally:
-            ws.close()
-        
-        return self._handle_completion(image_saved, image_filename, prompt_id)
 
-    def _handle_completion(self, image_saved: bool, image_filename: Optional[str], prompt_id: str) -> str:
-        """Handle post-execution completion logic"""
-        if not image_saved:
-            self.logger.warning("Image not found via WebSocket, checking history...")
+    def _extract_filename(self, outputs: Dict) -> Optional[str]:
+        """Extract filename from execution outputs"""
+        for node_id in outputs:
+            if 'images' in outputs[node_id]:
+                for image in outputs[node_id]['images']:
+                    if 'filename' in image:
+                        return image['filename']
+        return None
+
+    def _check_prompt_complete(self, prompt_id: str) -> bool:
+        """Check if prompt has completed execution"""
+        try:
             history = self._get_prompt_history(prompt_id)
-            image_filename = self._extract_image_filename(history)
-        
-        if not image_filename:
-            raise FluxAPIError("No output image generated", FluxErrorCode.GENERATION_FAILED)
-            
-        return image_filename
+            return prompt_id in history
+        except Exception as e:
+            self.logger.error(f"Prompt completion check failed: {str(e)}")
+            return False
 
-    def _get_prompt_history(self, prompt_id: str) -> dict:
-        """Retrieve prompt execution history from ComfyUI"""
+    def _get_image_from_history(self, prompt_id: str) -> str:
+        """Retrieve image filename from execution history"""
+        history = self._get_prompt_history(prompt_id)
+        try:
+            outputs = history[prompt_id].get("outputs", {})
+            for node_id in outputs:
+                if 'images' in outputs[node_id]:
+                    for image in outputs[node_id]['images']:
+                        if 'filename' in image:
+                            return image['filename']
+            raise FluxAPIError("No output image in history", 
+                             FluxErrorCode.GENERATION_FAILED)
+        except KeyError:
+            raise FluxAPIError("Prompt not found in history", 
+                             FluxErrorCode.GENERATION_FAILED)
+
+    def _get_prompt_history(self, prompt_id: str) -> Dict:
+        """Retrieve prompt execution history"""
         try:
             req = urllib.request.Request(f"{self.base_url}/history/{prompt_id}")
             with urllib.request.urlopen(req) as response:
@@ -363,19 +387,6 @@ class FluxAPI:
         except Exception as e:
             self.logger.error(f"History retrieval failed: {str(e)}")
             return {}
-
-    def _extract_image_filename(self, history: dict) -> Optional[str]:
-        """Extract filename from ComfyUI history"""
-        try:
-            for prompt in history.values():
-                for node in prompt.get('outputs', {}).values():
-                    if 'images' in node:
-                        for image in node['images']:
-                            return image['filename']
-            return None
-        except Exception as e:
-            self.logger.error(f"History parsing failed: {str(e)}")
-            return None
 
     def generate_image(self,
                       prompt: str,
@@ -386,10 +397,8 @@ class FluxAPI:
                       width: int = 1024,
                       height: int = 1024) -> str:
         """Main method to process text-to-image generation"""
-        # Check rate limit
         if not self.rate_limiter.is_allowed():
-            raise FluxAPIError("Rate limit exceeded. Please try again later.",
-                             FluxErrorCode.RATE_LIMIT)
+            raise FluxAPIError("Rate limit exceeded", FluxErrorCode.RATE_LIMIT)
 
         request_id = str(uuid.uuid4())
         self.logger.info(f"Starting generation {request_id}")
@@ -421,21 +430,20 @@ class FluxAPI:
             
             if not filename:
                 raise FluxAPIError(
-                    "No output filename received from ComfyUI",
+                    "No output filename received",
                     FluxErrorCode.GENERATION_FAILED
                 )
                 
-            # Return the filename
             return filename
 
         except Exception as e:
-            self.logger.error(f"Generation failed: {str(e)}")
+            self.logger.error(f"Generation {request_id} failed: {str(e)}")
             raise
         finally:
             if 'ws' in locals():
                 ws.close()
             self.logger.info(f"Completed generation {request_id}")
-   
+
     def get_system_info(self) -> Dict[str, Any]:
         """Get system status information"""
         try:
@@ -455,7 +463,7 @@ class FluxAPI:
                 }
             }
         except Exception as e:
-            self.logger.error(f"Error getting system info: {str(e)}")
+            self.logger.error(f"System info error: {str(e)}")
             return {
                 'status': 'degraded',
                 'comfyui_available': False,

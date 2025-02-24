@@ -3,21 +3,14 @@
 # --- Functions ---
 init_comfyui_dirs() {
     echo "Configuring ComfyUI directories..."
-    
-    # Clean existing legacy symlink if present
-    if [ -L "/ComfyUI" ]; then
-        echo "Removing existing ComfyUI symlink"
-        rm -f /ComfyUI
-    fi
-    
-    # Initialize physical directories
     mkdir -p /ComfyUI/output
-    chmod 755 /ComfyUI/output
+    chmod 777 /ComfyUI/output  # Relax permissions for debugging
+    chown -R 1000:1000 /ComfyUI/output
 }
 
 wait_for_comfyui() {
     echo "Waiting for ComfyUI to be ready..."
-    max_attempts=30
+    max_attempts=60
     attempt=1
     
     while [ $attempt -le $max_attempts ]; do

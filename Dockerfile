@@ -79,7 +79,9 @@ COPY api/ /api
 COPY workflows/ /workflows
 RUN chmod +x start.sh scripts/*.sh
 
-    
+RUN mkdir -p /ComfyUI/output && \
+    chown -R 1000:1000 /ComfyUI && \
+    chmod -R 755 /ComfyUI
 
 # Expose ports
 #FastAPI
