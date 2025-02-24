@@ -11,7 +11,7 @@ wait_for_comfyui() {
         curl -s "http://127.0.0.1:8188/history" > /dev/null || return_code=$?
         
         if [ $return_code -eq 0 ]; then
-            echo "ComfyUI version $(curl -s http://127.0.0.1:8188/sdapi/v1/version | jq .version) is ready!"
+            echo "ComfyUI is ready!"
             return 0
         fi
         
@@ -25,14 +25,12 @@ wait_for_comfyui() {
 }
 
 # --- Setup ---
-echo "Setting up workspace and output directories..."
-mkdir -p /workspace /output
-chown -R 1000:1000 /workspace /output
-chmod 755 /workspace /output
-logger "Created workspace and output directories with permissions 755"
+echo "Initializing directories..."
+mkdir -p /workspace /ComfyUI/output
+chown -R 1000:1000 /ComfyUI/output
+chmod 755 /ComfyUI/output
 
 # --- Initialize ComfyUI ---
-echo "Initializing ComfyUI workspace..."
 ./scripts/comfyui-on-workspace.sh
 
 # --- Download Models ---
@@ -42,14 +40,17 @@ echo "Downloading LoRA models..."
 ./scripts/download_flux_loras.sh
 
 # --- HuggingFace Login ---
-if [[ $HF_TOKEN && $HF_TOKEN != "enter_your_huggingface_token_here" ]]; then
+if [ -n "$HF_TOKEN" ] && [ "$HF_TOKEN" != "enter_your_huggingface_token_here" ]; then
     echo "Logging into HuggingFace..."
-    huggingface-cli login --token $HF_TOKEN --add-to-git-credential
+    huggingface-cli login --token "$HF_TOKEN" <<< "y"
 fi
 
 # --- Start Services ---
-python3 /workspace/ComfyUI/main.py --listen 0.0.0.0 --port 8188 --output-directory /ComfyUI/output &
-
+echo "Starting ComfyUI..."
+python3 /workspace/ComfyUI/main.py \
+    --listen 0.0.0.0 \
+    --port 8188 \
+    --output-directory /ComfyUI/output &
 
 # Wait for ComfyUI initialization
 if ! wait_for_comfyui; then
@@ -65,5 +66,5 @@ uvicorn api.main:app \
 
 # --- Process Management ---
 echo "All services started. Monitoring processes..."
-trap "echo 'Shutting down...'; kill -TERM 0" SIGINT SIGTERM
+trap 'echo "Shutting down..."; kill 0' SIGINT SIGTERM
 wait
