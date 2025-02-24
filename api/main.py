@@ -1,5 +1,10 @@
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field, field_validator, ValidationInfo
+from pydantic import (
+    BaseModel, 
+    Field, 
+    field_validator,  # Changed from validator
+    ValidationInfo    # New import
+)
 from typing import Optional, Dict, Any, List
 from flux_api import FluxAPI, FluxAPIError, FluxErrorCode
 import logging
@@ -82,11 +87,12 @@ class GenerationRequest(BaseModel):
         validate_default=True
     )
 
-    @field_validator('width', 'height', mode='before')
+
+    @field_validator('width', 'height', mode='before')  # Updated decorator
     @classmethod
     def validate_dimensions(cls, value: int, info: ValidationInfo) -> int:
         if value % 8 != 0:
-            raise ValueError(f"{info.field_name} must be a multiple of 8")
+            raise ValueError(f"{info.field_name} must be multiple of 8")
         return value
 
 class ErrorDetail(BaseModel):
