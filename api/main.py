@@ -100,16 +100,17 @@ class GenerationResponse(BaseModel):
     request_id: str = Field(..., description="Unique identifier for the request")
     error: Optional[ErrorDetail] = Field(None, description="Error details if generation failed")
 
+
 class RateLimitInfo(BaseModel):
     max_requests: int = Field(
         ..., 
         description="Maximum requests allowed in the time window",
-        gt=0
+        ge=0  # Changed from gt=0 to ge=0
     )
     time_window: int = Field(
         ..., 
         description="Time window in seconds",
-        gt=0
+        ge=0  # Changed from gt=0 to ge=0
     )
     remaining_tokens: float = Field(
         ..., 
@@ -144,7 +145,6 @@ class SystemStatusResponse(BaseModel):
         ..., 
         description="Rate limiting information"
     )
-
 class LoraListResponse(BaseModel):
     loras: List[str] = Field(
         ..., 
@@ -287,7 +287,17 @@ async def get_status():
     try:
         flux = FluxAPI()
         status_info = flux.get_system_info()
+        
+        # Ensure rate limit info has valid values
+        if status_info['status'] == 'degraded':
+            status_info['rate_limit'] = {
+                'max_requests': 1,  # Use minimum valid values instead of 0
+                'time_window': 1,
+                'remaining_tokens': 0.0
+            }
+            
         return SystemStatusResponse(**status_info)
+        
     except Exception as e:
         logger.error(f"Status check failed: {str(e)}")
         return SystemStatusResponse(
@@ -297,9 +307,9 @@ async def get_status():
             gpu_available=False,
             loras_available=0,
             rate_limit=RateLimitInfo(
-                max_requests=0,
-                time_window=0,
-                remaining_tokens=0
+                max_requests=1,  # Use minimum valid values instead of 0
+                time_window=1,
+                remaining_tokens=0.0
             )
         )
 

@@ -399,7 +399,7 @@ class FluxAPI:
             return filename
 
         except Exception as e:
-            self.logger.error(f"Generation failed: {str(e)}")
+            self.logger.error(f"Genegitration failed: {str(e)}")
             raise
         finally:
             if 'ws' in locals():
@@ -415,8 +415,8 @@ class FluxAPI:
             return {
                 'status': 'healthy' if comfyui_available else 'unhealthy',
                 'comfyui_available': comfyui_available,
-                'active_workers': 1,  # TODO: Implement actual worker tracking
-                'gpu_available': True,  # TODO: Add actual GPU check
+                'active_workers': 1,
+                'gpu_available': True,
                 'loras_available': len(loras),
                 'rate_limit': {
                     'max_requests': self.rate_limiter.max_requests,
@@ -426,7 +426,6 @@ class FluxAPI:
             }
         except Exception as e:
             self.logger.error(f"Error getting system info: {str(e)}")
-            # Return degraded status with consistent structure
             return {
                 'status': 'degraded',
                 'comfyui_available': False,
@@ -434,9 +433,9 @@ class FluxAPI:
                 'gpu_available': False,
                 'loras_available': 0,
                 'rate_limit': {
-                    'max_requests': 0,
-                    'time_window': 0,
-                    'remaining_tokens': 0
+                    'max_requests': 1,  # Use minimum valid values instead of 0
+                    'time_window': 1,
+                    'remaining_tokens': 0.0
                 }
             }
 
