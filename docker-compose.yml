@@ -1,12 +1,13 @@
 version: '3.8'
 
 services:
-  flux-api:
+  identic_flux_api:
     build: .
     ports:
       - "8000:8000"
     volumes:
       - workspace:/workspace
+      - output:/output  # Add output volume
     deploy:
       resources:
         reservations:
@@ -22,3 +23,4 @@ services:
 
 volumes:
   workspace:
+  output:  # Add output volume definition

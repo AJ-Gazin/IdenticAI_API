@@ -202,16 +202,17 @@
       "title": "Load VAE"
     }
   },
-  "20": {
+  "21": {
     "inputs": {
+      "filename_prefix": "/output/",
       "images": [
         "13",
         0
       ]
     },
-    "class_type": "SaveImageWebsocket",
+    "class_type": "SaveImage",
     "_meta": {
-      "title": "SaveImageWebsocket"
+      "title": "Save Image"
     }
   }
 }

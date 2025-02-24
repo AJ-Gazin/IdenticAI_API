@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, ValidationInfo
 from typing import Optional, Dict, Any, List
 from flux_api import FluxAPI, FluxAPIError, FluxErrorCode
 import logging
@@ -8,8 +8,9 @@ import os
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+from enum import Enum
 
-# Initialize FastAPI
 app = FastAPI(
     title="Flux Image Generation API",
     description="REST API for Text-to-Image Generation using ComfyUI",
@@ -19,13 +20,15 @@ app = FastAPI(
     openapi_url="/openapi.json"
 )
 
-# Add security middleware
+# CORS and middleware setup remains the same
 app.add_middleware(
-    TrustedHostMiddleware,
-    allowed_hosts=["*"]  # Configure as needed for production
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
-
-# Mount static files directory for serving generated images
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
 app.mount("/output", StaticFiles(directory="/output"), name="output")
 
 # Configure logging
@@ -35,12 +38,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("API")
 
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field, validator
-from typing import Optional, List, Dict, Any
-from enum import Enum
-
-# --- Request Models ---
+# --- Updated Models with Pydantic v2 Validators ---
 class ModelType(str, Enum):
     DEV = "dev"
     SCHNELL = "schnell"
@@ -48,9 +46,9 @@ class ModelType(str, Enum):
 class GenerationRequest(BaseModel):
     prompt: str = Field(
         ..., 
-        description="Text prompt for image generation",
         min_length=1,
-        max_length=500
+        max_length=500,
+        description="Text prompt for image generation"
     )
     lora_name: Optional[str] = Field(
         default="steampunk.safetensors",
@@ -66,29 +64,31 @@ class GenerationRequest(BaseModel):
     )
     negative_prompt: Optional[str] = Field(
         default=None,
-        description="Negative prompt for improved results",
-        max_length=500
+        max_length=500,
+        description="Negative prompt for improved results"
     )
     width: int = Field(
         default=1024,
-        description="Output image width",
         ge=64,
-        le=2048
+        le=2048,
+        description="Output image width",
+        validate_default=True
     )
     height: int = Field(
         default=1024,
-        description="Output image height",
         ge=64,
-        le=2048
+        le=2048,
+        description="Output image height",
+        validate_default=True
     )
 
-    @validator('width', 'height')
-    def validate_dimensions(cls, v):
-        if v % 8 != 0:
-            raise ValueError("Dimensions must be multiples of 8")
-        return v
+    @field_validator('width', 'height', mode='before')
+    @classmethod
+    def validate_dimensions(cls, value: int, info: ValidationInfo) -> int:
+        if value % 8 != 0:
+            raise ValueError(f"{info.field_name} must be a multiple of 8")
+        return value
 
-# --- Response Models ---
 class ErrorDetail(BaseModel):
     error: str = Field(..., description="Error code")
     message: str = Field(..., description="Error message")
@@ -100,98 +100,26 @@ class GenerationResponse(BaseModel):
     request_id: str = Field(..., description="Unique identifier for the request")
     error: Optional[ErrorDetail] = Field(None, description="Error details if generation failed")
 
-
 class RateLimitInfo(BaseModel):
-    max_requests: int = Field(
-        ..., 
-        description="Maximum requests allowed in the time window",
-        ge=0  # Changed from gt=0 to ge=0
-    )
-    time_window: int = Field(
-        ..., 
-        description="Time window in seconds",
-        ge=0  # Changed from gt=0 to ge=0
-    )
-    remaining_tokens: float = Field(
-        ..., 
-        description="Number of remaining requests allowed",
-        ge=0
-    )
+    max_requests: int = Field(..., ge=0, description="Maximum requests allowed")
+    time_window: int = Field(..., ge=0, description="Time window in seconds")
+    remaining_tokens: float = Field(..., ge=0, description="Remaining requests")
 
 class SystemStatusResponse(BaseModel):
-    status: str = Field(
-        ..., 
-        description="Overall system status (healthy/unhealthy/degraded)"
-    )
-    comfyui_available: bool = Field(
-        ..., 
-        description="Whether ComfyUI service is responding"
-    )
-    active_workers: int = Field(
-        ..., 
-        description="Number of active processing workers",
-        ge=0
-    )
-    gpu_available: bool = Field(
-        ..., 
-        description="Whether GPU is available"
-    )
-    loras_available: int = Field(
-        ..., 
-        description="Number of available LoRA models",
-        ge=0
-    )
-    rate_limit: RateLimitInfo = Field(
-        ..., 
-        description="Rate limiting information"
-    )
-class LoraListResponse(BaseModel):
-    loras: List[str] = Field(
-        ..., 
-        description="List of available LoRA files"
-    )
-    default_lora: str = Field(
-        ..., 
-        description="Name of the default LoRA"
-    )
+    status: str = Field(..., description="System status")
+    comfyui_available: bool = Field(..., description="ComfyUI availability")
+    active_workers: int = Field(..., ge=0, description="Active workers")
+    gpu_available: bool = Field(..., description="GPU status")
+    loras_available: int = Field(..., ge=0, description="Available LoRAs")
+    rate_limit: RateLimitInfo = Field(..., description="Rate limiting info")
 
-# --- Example Responses ---
-EXAMPLE_RESPONSES = {
-    "generation_success": {
-        "status": "success",
-        "image_url": "/output/generated_123.png",
-        "request_id": "550e8400-e29b-41d4-a716-446655440000"
-    },
-    "generation_error": {
-        "status": "error",
-        "request_id": "550e8400-e29b-41d4-a716-446655440000",
-        "error": {
-            "error": "GENERATION_FAILED",
-            "message": "Failed to generate image",
-            "request_id": "550e8400-e29b-41d4-a716-446655440000"
-        }
-    },
-    "system_status": {
-        "status": "healthy",
-        "comfyui_available": True,
-        "active_workers": 1,
-        "gpu_available": True,
-        "loras_available": 2,
-        "rate_limit": {
-            "max_requests": 10,
-            "time_window": 60,
-            "remaining_tokens": 8.5
-        }
-    },
-    "lora_list": {
-        "loras": ["steampunk.safetensors", "cyberpunk.safetensors"],
-        "default_lora": "steampunk.safetensors"
-    }
-}
-# --- Error Handling ---
+class LoraListResponse(BaseModel):
+    loras: List[str] = Field(..., description="Available LoRA files")
+    default_lora: str = Field(..., description="Default LoRA")
+
+# Error handlers remain unchanged
 @app.exception_handler(FluxAPIError)
 async def flux_error_handler(request, exc: FluxAPIError):
-    """Handle FluxAPI specific errors"""
     return JSONResponse(
         status_code=400,
         content={
@@ -204,7 +132,6 @@ async def flux_error_handler(request, exc: FluxAPIError):
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request, exc: Exception):
-    """Handle unexpected errors"""
     logger.exception("Unexpected error occurred")
     return JSONResponse(
         status_code=500,
@@ -216,23 +143,14 @@ async def general_exception_handler(request, exc: Exception):
         }
     )
 
-# --- API Endpoints ---
-@app.post(
-    "/generate",
-    response_model=GenerationResponse,
-    summary="Generate Image",
-    description="Process text prompt into generated image using specified model parameters"
-)
+# API endpoints with updated validation
+@app.post("/generate", response_model=GenerationResponse)
 async def generate_image(request: GenerationRequest):
-    """Main endpoint for image generation"""
     request_id = str(uuid.uuid4())
-    logger.info(f"[{request_id}] Starting generation request with prompt: {request.prompt[:50]}...")
+    logger.info(f"[{request_id}] Starting generation request")
     
     try:
-        # Initialize API
         flux = FluxAPI()
-        
-        # Execute generation
         filename = flux.generate_image(
             prompt=request.prompt,
             lora_name=request.lora_name,
@@ -243,9 +161,6 @@ async def generate_image(request: GenerationRequest):
             height=request.height
         )
         
-        logger.info(f"[{request_id}] Generation completed successfully, file: {filename}")
-        
-        # Return success response
         return GenerationResponse(
             status="success",
             image_url=f"/output/{os.path.basename(filename)}",
@@ -253,51 +168,32 @@ async def generate_image(request: GenerationRequest):
         )
         
     except FluxAPIError as e:
-        error_detail = ErrorDetail(
-            error=e.error_code.value,
-            message=e.message,
-            request_id=request_id
-        )
         return GenerationResponse(
             status="error",
             request_id=request_id,
-            error=error_detail
+            error=ErrorDetail(
+                error=e.error_code.value,
+                message=e.message,
+                request_id=request_id
+            )
         )
     except Exception as e:
-        error_detail = ErrorDetail(
-            error="INTERNAL_ERROR",
-            message=str(e),
-            request_id=request_id
-        )
         return GenerationResponse(
             status="error",
             request_id=request_id,
-            error=error_detail
+            error=ErrorDetail(
+                error="INTERNAL_ERROR",
+                message=str(e),
+                request_id=request_id
+            )
         )
 
-@app.get(
-    "/status",
-    response_model=SystemStatusResponse,
-    tags=["system"],
-    summary="System Health Check",
-    description="Get current service status and component availability"
-)
+@app.get("/status", response_model=SystemStatusResponse)
 async def get_status():
-    """System health check endpoint"""
     try:
         flux = FluxAPI()
         status_info = flux.get_system_info()
-        
-        # Ensure rate limit info has valid values
-        if status_info['status'] == 'degraded':
-            status_info['rate_limit'] = {
-                'max_requests': 1,  # Use minimum valid values instead of 0
-                'time_window': 1,
-                'remaining_tokens': 0.0
-            }
-            
         return SystemStatusResponse(**status_info)
-        
     except Exception as e:
         logger.error(f"Status check failed: {str(e)}")
         return SystemStatusResponse(
@@ -307,54 +203,37 @@ async def get_status():
             gpu_available=False,
             loras_available=0,
             rate_limit=RateLimitInfo(
-                max_requests=1,  # Use minimum valid values instead of 0
+                max_requests=1,
                 time_window=1,
                 remaining_tokens=0.0
             )
         )
 
-@app.get(
-    "/models/loras",
-    response_model=LoraListResponse,
-    tags=["models"],
-    summary="List Available LoRAs",
-    description="Retrieve list of available LoRA adapters"
-)
+@app.get("/models/loras", response_model=LoraListResponse)
 async def list_available_loras():
-    """List available LoRA models"""
     try:
         flux = FluxAPI()
-        loras = flux.list_available_loras()
         return LoraListResponse(
-            loras=loras,
+            loras=flux.list_available_loras(),
             default_lora="steampunk.safetensors"
         )
     except Exception as e:
         logger.error(f"Failed to list LoRAs: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail={"error": "INTERNAL_ERROR", "message": str(e)}
-        )
+        raise HTTPException(500, detail={"error": "INTERNAL_ERROR", "message": str(e)})
 
-# --- Startup Event ---
 @app.on_event("startup")
 async def startup_event():
-    """Initialize API on startup"""
     logger.info("API starting up...")
     try:
-        # Verify output directory exists and is writable
         os.makedirs("/output", exist_ok=True)
         if not os.access("/output", os.W_OK):
-            logger.error("Output directory is not writable!")
-            raise Exception("Output directory /output is not writable")
+            raise PermissionError("Output directory not writable")
             
-        # Test ComfyUI connection
         flux = FluxAPI()
         if not flux.check_comfy_status():
-            logger.error("ComfyUI service is not available!")
-            raise Exception("ComfyUI service is not available")
+            raise ConnectionError("ComfyUI unavailable")
             
-        logger.info("API startup completed successfully")
+        logger.info("API startup completed")
     except Exception as e:
-        logger.error(f"API startup failed: {str(e)}")
+        logger.error(f"Startup failed: {str(e)}")
         raise

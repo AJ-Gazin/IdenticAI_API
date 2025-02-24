@@ -69,6 +69,10 @@ class RateLimiter:
             return True
         return False
 
+    def get_remaining_tokens(self) -> float:
+        self._refill()
+        return self.tokens
+
 # --- Core API Class ---
 class FluxAPI:
     def __init__(self, 
@@ -308,27 +312,18 @@ class FluxAPI:
                             
                             if node_id not in finished_nodes:
                                 finished_nodes.append(node_id)
-                                # Get node name from workflow if available
                                 node_name = self.workflow.get(str(node_id), {}).get('_meta', {}).get('title', 'Unknown')
                                 self.logger.info(f"Processing node {node_id}: {node_name}")
                             
-                            # Check if this is the end of prompt execution
                             if node_id is None and data["prompt_id"] == prompt_id:
-                                if not image_saved:
-                                    self.logger.warning("Execution completed but no image was saved")
-                                return image_filename if image_filename else "output.png"
+                                return self._handle_completion(image_saved, image_filename, prompt_id)
                                 
                         elif message["type"] == "executed":
-                            if "output" in message.get("data", {}):
-                                outputs = message["data"]["output"]
-                                for node_output in outputs.values():
-                                    if "images" in node_output:
-                                        for img_data in node_output["images"]:
-                                            if isinstance(img_data, dict) and "filename" in img_data:
-                                                image_filename = img_data["filename"]
-                                                self.logger.info(f"Image saved as: {image_filename}")
-                                                image_saved = True
-                                                
+                            outputs = message.get("data", {}).get("output", {})
+                            image_filename = self._process_executed_message(outputs)
+                            if image_filename:
+                                image_saved = True
+                                
                         elif message["type"] == "execution_error":
                             error = message.get('data', {}).get('exception_message', 'Unknown error')
                             raise FluxAPIError(f"Workflow execution error: {error}", 
@@ -345,7 +340,42 @@ class FluxAPI:
         finally:
             ws.close()
         
-        return image_filename if image_filename else "output.png"
+        return self._handle_completion(image_saved, image_filename, prompt_id)
+
+    def _handle_completion(self, image_saved: bool, image_filename: Optional[str], prompt_id: str) -> str:
+        """Handle post-execution completion logic"""
+        if not image_saved:
+            self.logger.warning("Image not found via WebSocket, checking history...")
+            history = self._get_prompt_history(prompt_id)
+            image_filename = self._extract_image_filename(history)
+        
+        if not image_filename:
+            raise FluxAPIError("No output image generated", FluxErrorCode.GENERATION_FAILED)
+            
+        return image_filename
+
+    def _get_prompt_history(self, prompt_id: str) -> dict:
+        """Retrieve prompt execution history from ComfyUI"""
+        try:
+            req = urllib.request.Request(f"{self.base_url}/history/{prompt_id}")
+            with urllib.request.urlopen(req) as response:
+                return json.loads(response.read().decode('utf-8'))
+        except Exception as e:
+            self.logger.error(f"History retrieval failed: {str(e)}")
+            return {}
+
+    def _extract_image_filename(self, history: dict) -> Optional[str]:
+        """Extract filename from ComfyUI history"""
+        try:
+            for prompt in history.values():
+                for node in prompt.get('outputs', {}).values():
+                    if 'images' in node:
+                        for image in node['images']:
+                            return image['filename']
+            return None
+        except Exception as e:
+            self.logger.error(f"History parsing failed: {str(e)}")
+            return None
 
     def generate_image(self,
                       prompt: str,
@@ -399,7 +429,7 @@ class FluxAPI:
             return filename
 
         except Exception as e:
-            self.logger.error(f"Genegitration failed: {str(e)}")
+            self.logger.error(f"Generation failed: {str(e)}")
             raise
         finally:
             if 'ws' in locals():
@@ -433,7 +463,7 @@ class FluxAPI:
                 'gpu_available': False,
                 'loras_available': 0,
                 'rate_limit': {
-                    'max_requests': 1,  # Use minimum valid values instead of 0
+                    'max_requests': 1,
                     'time_window': 1,
                     'remaining_tokens': 0.0
                 }

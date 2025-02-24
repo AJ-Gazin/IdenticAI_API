@@ -15,8 +15,6 @@ RUN apt-get update -y && \
     ninja-build python3.10-venv python3.10-distutils && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
-RUN apt-get update && apt-get install -y jq
-
 
 # Environment configuration
 ENV PATH="/usr/local/cuda/bin:/usr/bin:${PATH}"
@@ -38,8 +36,7 @@ RUN pip3 install huggingface_hub[hf-transfer]
 # Install core Python dependencies
 COPY requirements.txt /
 RUN pip3 install -r /requirements.txt
-RUN mkdir -p /output && \
-    chown -R 1000:1000 /output
+RUN mkdir -p /output && chmod 755 /output
 
 # Clone ComfyUI and core nodes
 RUN git clone https://github.com/comfyanonymous/ComfyUI.git && \
