@@ -4,10 +4,11 @@ services:
   identic_flux_api:
     build: .
     ports:
-      - "8000:8000"
+      - "8000:8000"     # API
+      - "8188:8188"     # ComfyUI (optional)
     volumes:
-      - workspace:/workspace
-      - output:/output  
+      - comfyui_data:/ComfyUI
+      - ./output:/ComfyUI/output
     deploy:
       resources:
         reservations:
@@ -22,5 +23,4 @@ services:
       - HF_TOKEN=${HF_TOKEN}
 
 volumes:
-  workspace:
-  output:  
+  comfyui_data:

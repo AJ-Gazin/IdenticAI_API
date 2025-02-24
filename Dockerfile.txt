@@ -15,6 +15,8 @@ RUN apt-get update -y && \
     ninja-build python3.10-venv python3.10-distutils && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y jq
+
 
 # Environment configuration
 ENV PATH="/usr/local/cuda/bin:/usr/bin:${PATH}"
@@ -36,7 +38,8 @@ RUN pip3 install huggingface_hub[hf-transfer]
 # Install core Python dependencies
 COPY requirements.txt /
 RUN pip3 install -r /requirements.txt
-RUN mkdir -p /output && chmod 755 /output
+RUN mkdir -p /output && \
+    chown -R 1000:1000 /output
 
 # Clone ComfyUI and core nodes
 RUN git clone https://github.com/comfyanonymous/ComfyUI.git && \
@@ -73,10 +76,11 @@ COPY --chmod=755 scripts/ /scripts/
 COPY --chmod=644 config/comfy.settings.json /ComfyUI/user/default/
 COPY api/ /api
 COPY workflows/ /workflows
-
+RUN chmod +x start.sh scripts/*.sh
 # Create workspace and set permissions
 RUN mkdir -p /workspace /output && \
     chmod 755 /workspace /output
+    
 
 # Expose ports
 #FastAPI
@@ -86,6 +90,11 @@ EXPOSE 8188
 # Jupyter (optional)
 EXPOSE 8888
  
+RUN apt-get update && \
+    apt-get install -y dos2unix && \
+    find . -type f -name "*.sh" -exec dos2unix {} + && \
+    apt-get purge -y dos2unix && \
+    apt-get autoremove -y
 
 # Set working directory and entrypoint
 WORKDIR /

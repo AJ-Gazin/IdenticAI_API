@@ -70,16 +70,15 @@ RUN cd /ComfyUI/custom_nodes && \
 RUN pip uninstall -y sageattention xformers
 
 # Copy application files
-COPY --chmod=644 readme.md /readme.md
+
+# Application files
 COPY --chmod=755 start.sh /start.sh
 COPY --chmod=755 scripts/ /scripts/
 COPY --chmod=644 config/comfy.settings.json /ComfyUI/user/default/
 COPY api/ /api
 COPY workflows/ /workflows
 RUN chmod +x start.sh scripts/*.sh
-# Create workspace and set permissions
-RUN mkdir -p /workspace /output && \
-    chmod 755 /workspace /output
+
     
 
 # Expose ports

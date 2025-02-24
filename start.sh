@@ -4,19 +4,15 @@
 init_comfyui_dirs() {
     echo "Configuring ComfyUI directories..."
     
-    # Clean existing symlink if present
+    # Clean existing legacy symlink if present
     if [ -L "/ComfyUI" ]; then
         echo "Removing existing ComfyUI symlink"
         rm -f /ComfyUI
     fi
     
     # Initialize physical directories
-    mkdir -p /workspace/ComfyUI/output
-    chmod 755 /workspace/ComfyUI/output
-    
-    # Create system symlink
-    echo "Creating /ComfyUI symlink"
-    ln -s /workspace/ComfyUI /ComfyUI
+    mkdir -p /ComfyUI/output
+    chmod 755 /ComfyUI/output
 }
 
 wait_for_comfyui() {
@@ -40,18 +36,15 @@ wait_for_comfyui() {
 
 # --- Initialization Phase ---
 echo "Starting container initialization..."
-mkdir -p /workspace
 init_comfyui_dirs
 
 # Set permissions for runtime user
 echo "Setting directory permissions..."
-chown -R 1000:1000 /workspace /ComfyUI
-chmod 755 /workspace /ComfyUI
+chown -R 1000:1000 /ComfyUI
+chmod 755 /ComfyUI
 
-# --- ComfyUI Workspace Setup ---
-echo "Configuring ComfyUI workspace..."
-sed -i 's/mv --no-clobber \/ComfyUI/# Disabled directory move/g' ./scripts/comfyui-on-workspace.sh
-sed -i 's/rm -rf \/ComfyUI/# Disabled directory removal/g' ./scripts/comfyui-on-workspace.sh
+# --- ComfyUI Configuration ---
+echo "Setting up ComfyUI..."
 ./scripts/comfyui-on-workspace.sh
 
 # --- Model Downloads ---
@@ -68,7 +61,7 @@ fi
 
 # --- Runtime Service Launch ---
 echo "Starting ComfyUI..."
-python3 /workspace/ComfyUI/main.py \
+python3 /ComfyUI/main.py \
     --listen 0.0.0.0 \
     --port 8188 \
     --output-directory /ComfyUI/output &

@@ -2,8 +2,8 @@ from fastapi import FastAPI, HTTPException
 from pydantic import (
     BaseModel, 
     Field, 
-    field_validator,  # Changed from validator
-    ValidationInfo    # New import
+    field_validator,
+    ValidationInfo
 )
 from typing import Optional, Dict, Any, List
 from flux_api import FluxAPI, FluxAPIError, FluxErrorCode
@@ -25,7 +25,7 @@ app = FastAPI(
     openapi_url="/openapi.json"
 )
 
-# CORS and middleware setup remains the same
+# CORS and middleware setup
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -43,7 +43,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("API")
 
-# --- Updated Models with Pydantic v2 Validators ---
+# --- Data Models ---
 class ModelType(str, Enum):
     DEV = "dev"
     SCHNELL = "schnell"
@@ -87,8 +87,7 @@ class GenerationRequest(BaseModel):
         validate_default=True
     )
 
-
-    @field_validator('width', 'height', mode='before')  # Updated decorator
+    @field_validator('width', 'height', mode='before')
     @classmethod
     def validate_dimensions(cls, value: int, info: ValidationInfo) -> int:
         if value % 8 != 0:
@@ -123,7 +122,7 @@ class LoraListResponse(BaseModel):
     loras: List[str] = Field(..., description="Available LoRA files")
     default_lora: str = Field(..., description="Default LoRA")
 
-# Error handlers remain unchanged
+# --- Error Handlers ---
 @app.exception_handler(FluxAPIError)
 async def flux_error_handler(request, exc: FluxAPIError):
     return JSONResponse(
@@ -149,7 +148,7 @@ async def general_exception_handler(request, exc: Exception):
         }
     )
 
-# API endpoints with updated validation
+# --- API Endpoints ---
 @app.post("/generate", response_model=GenerationResponse)
 async def generate_image(request: GenerationRequest):
     request_id = str(uuid.uuid4())
@@ -227,6 +226,7 @@ async def list_available_loras():
         logger.error(f"Failed to list LoRAs: {str(e)}")
         raise HTTPException(500, detail={"error": "INTERNAL_ERROR", "message": str(e)})
 
+# --- Startup Validation ---
 @app.on_event("startup")
 async def startup_event():
     logger.info("API starting up...")
