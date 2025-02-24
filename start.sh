@@ -48,11 +48,8 @@ if [[ $HF_TOKEN && $HF_TOKEN != "enter_your_huggingface_token_here" ]]; then
 fi
 
 # --- Start Services ---
-echo "Starting ComfyUI..."
-python3 /workspace/ComfyUI/main.py \
-    --listen 0.0.0.0 \
-    --port 8188 \
-    --output-directory /output &
+python3 /workspace/ComfyUI/main.py --listen 0.0.0.0 --port 8188 --output-directory /ComfyUI/output &
+
 
 # Wait for ComfyUI initialization
 if ! wait_for_comfyui; then

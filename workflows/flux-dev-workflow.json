@@ -204,7 +204,7 @@
   },
   "21": {
     "inputs": {
-      "filename_prefix": "/output/",
+      "filename_prefix": "fluxdev",
       "images": [
         "13",
         0

@@ -18,7 +18,7 @@ from collections import deque
 
 # --- Constants ---
 DEFAULT_LORA = "steampunk.safetensors"
-DEFAULT_OUTPUT_DIR = "/output"
+DEFAULT_OUTPUT_DIR = "/ComfyUI/output"
 WORKFLOW_BASE_PATH = "/workflows"
 MAX_RETRIES = 3
 RETRY_DELAY = 5  # seconds

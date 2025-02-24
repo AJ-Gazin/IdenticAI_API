@@ -7,7 +7,7 @@ services:
       - "8000:8000"
     volumes:
       - workspace:/workspace
-      - output:/output  # Add output volume
+      - output:/output  
     deploy:
       resources:
         reservations:
@@ -23,4 +23,4 @@ services:
 
 volumes:
   workspace:
-  output:  # Add output volume definition
+  output:  

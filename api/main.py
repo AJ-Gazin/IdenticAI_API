@@ -29,7 +29,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
-app.mount("/output", StaticFiles(directory="/output"), name="output")
+app.mount("/output", StaticFiles(directory="/ComfyUI/output"), name="output")
 
 # Configure logging
 logging.basicConfig(
@@ -225,8 +225,8 @@ async def list_available_loras():
 async def startup_event():
     logger.info("API starting up...")
     try:
-        os.makedirs("/output", exist_ok=True)
-        if not os.access("/output", os.W_OK):
+        os.makedirs("/ComfyUI/output", exist_ok=True)
+        if not os.access("/ComfyUI/output", os.W_OK):
             raise PermissionError("Output directory not writable")
             
         flux = FluxAPI()
