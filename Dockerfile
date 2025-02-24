@@ -49,6 +49,7 @@ RUN git clone https://github.com/comfyanonymous/ComfyUI.git && \
     git clone https://github.com/ltdrdata/ComfyUI-Manager.git && \
     git clone https://github.com/pythongosssss/ComfyUI-Custom-Scripts.git
 
+
 # Install additional custom nodes
 RUN cd /ComfyUI/custom_nodes && \
     git clone https://github.com/kijai/ComfyUI-KJNodes.git && \
@@ -78,6 +79,8 @@ COPY --chmod=644 config/comfy.settings.json /ComfyUI/user/default/
 COPY api/ /api
 COPY workflows/ /workflows
 RUN chmod +x start.sh scripts/*.sh
+
+RUN mkdir -p /ComfyUI/models/diffusion_models
 
 RUN mkdir -p /ComfyUI/output && \
     chown -R 1000:1000 /ComfyUI && \
