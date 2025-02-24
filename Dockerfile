@@ -76,10 +76,11 @@ COPY --chmod=755 scripts/ /scripts/
 COPY --chmod=644 config/comfy.settings.json /ComfyUI/user/default/
 COPY api/ /api
 COPY workflows/ /workflows
-
+RUN chmod +x start.sh scripts/*.sh
 # Create workspace and set permissions
 RUN mkdir -p /workspace /output && \
     chmod 755 /workspace /output
+    
 
 # Expose ports
 #FastAPI
@@ -89,6 +90,11 @@ EXPOSE 8188
 # Jupyter (optional)
 EXPOSE 8888
  
+RUN apt-get update && \
+    apt-get install -y dos2unix && \
+    find . -type f -name "*.sh" -exec dos2unix {} + && \
+    apt-get purge -y dos2unix && \
+    apt-get autoremove -y
 
 # Set working directory and entrypoint
 WORKDIR /
